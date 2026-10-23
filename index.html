@@ -113,6 +113,9 @@ input[type=color]{width:44px;height:44px;border:0;background:none;padding:0}
 .sw{display:flex;align-items:center;gap:10px;margin-top:10px;font-weight:400}
 .sw input{width:22px;height:22px;flex:none}
 .code{font-family:ui-monospace,monospace;background:var(--bg);padding:8px 10px;border-radius:10px;word-break:break-all;font-size:13px}
+.own{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px}
+.own .btn{padding:8px 12px;font-size:14px;flex:none}
+.cell:disabled,.btn:disabled{opacity:.45;cursor:default}
 </style>
 </head>
 <body>
@@ -122,7 +125,14 @@ input[type=color]{width:44px;height:44px;border:0;background:none;padding:0}
 /* ============ Firebase ============
    Klistra in din config här (se instruktionerna). Lämna null för lokalt läge (en telefon).
    const FIREBASE_CONFIG={apiKey:"...",authDomain:"...",projectId:"...",appId:"..."}; */
-const FIREBASE_CONFIG=null;
+const FIREBASE_CONFIG={
+  apiKey:"AIzaSyCXbrMKoTQWIxS699fOfRsju9Lcz8AlztI",
+  authDomain:"veckopeng-f5702.firebaseapp.com",
+  projectId:"veckopeng-f5702",
+  storageBucket:"veckopeng-f5702.firebasestorage.app",
+  messagingSenderId:"675649694653",
+  appId:"1:675649694653:web:96c1c9fc2d40edc5d040d4"
+};
 const FB='https://www.gstatic.com/firebasejs/10.12.2/';
 
 /* ============ Hjälpare ============ */
@@ -140,7 +150,7 @@ const weekKey=off=>fmt(addDays(monday(),off*7));
 const isoWeek=d=>{const x=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const n=x.getUTCDay()||7;x.setUTCDate(x.getUTCDate()+4-n);return Math.ceil(((x-new Date(Date.UTC(x.getUTCFullYear(),0,1)))/864e5+1)/7)};
 const kr=n=>`${n} kr`;
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('show'),2200)}
-const hp=async p=>{if(!crypto.subtle)return p;const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode((fam||'')+p));return Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('')};
+const hp=async(p,s=fam||'')=>{if(!crypto.subtle)return p;const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s+p));return Array.from(new Uint8Array(b),x=>x.toString(16).padStart(2,'0')).join('')};
 
 /* ============ Data ============
    done[nyckel] = {s:1 väntar | 2 godkänd | 3 gör om, t:tid, p:foto}
@@ -151,7 +161,7 @@ const Store={
 };
 function defaults(){
   const k=['sakris','sally'];
-  return{v:2,cfgT:0,pin:'',bonus:10,approve:true,
+  return{v:2,cfgT:0,bonus:10,approve:true,odd:'pappa',wo:{},parents:[{id:'pappa',n:'Pappa',pin:''},{id:'mamma',n:'Mamma',pin:''}],
     kids:[{id:'sakris',n:'Sakris',c:'#2F6BFF'},{id:'sally',n:'Sally',c:'#E5408A'}],
     tasks:[
       {id:'t1',t:'Duka av bordet',e:'🍽️',v:2,d:[0,1,2,3,4],k},
@@ -162,13 +172,16 @@ function defaults(){
     done:{},paid:{}};
 }
 let S=Store.load()||defaults();
-S.approve??=true;
+S.approve??=true;S.odd??='pappa';S.wo??={};S.parents??=[{id:'pappa',n:'Pappa',pin:S.pin||''},{id:'mamma',n:'Mamma',pin:''}];
 for(const m of['done','paid'])for(const k in S[m]){const r=S[m][k];if(Array.isArray(r))S[m][k]={s:m==='done'?(r[0]?2:0):r[0],t:r[1]}}
 const commit=()=>Store.save(S);
-const ui={mode:'home',kid:null,day:null,ok:false,tab:'over',off:0,edit:null,zoom:null};
+const ui={me:null,mode:'home',kid:null,day:null,ok:false,tab:'over',off:0,edit:null,zoom:null};
 let fam=localStorage.getItem(FAM_KEY)||null;
 
 const kidOf=id=>S.kids.find(k=>k.id===id);
+const parentOf=id=>S.parents.find(p=>p.id===id);
+const other=id=>S.parents.find(p=>p.id!==id).id;
+const owner=w=>S.wo[w]||(isoWeek(new Date(w+'T00:00:00'))%2===1?S.odd:other(S.odd));
 const slots=kid=>S.tasks.filter(t=>t.k.includes(kid)).flatMap(t=>t.d.map(d=>({t,d})));
 const dk=(w,k,t,d)=>`${w}|${k}|${t}|${d}`;
 const status=(w,k,t,d)=>(S.done[dk(w,k,t,d)]||{}).s||0;
@@ -182,7 +195,7 @@ function stats(kid,w){
 
 /* ============ Synk (Firestore) ============ */
 let cloud=null,cstate=!FIREBASE_CONFIG?'off':fam?'connecting':'setup';
-const cfgOf=()=>({kids:S.kids,tasks:S.tasks,bonus:S.bonus,approve:S.approve,pin:S.pin,cfgT:S.cfgT});
+const cfgOf=()=>({kids:S.kids,tasks:S.tasks,bonus:S.bonus,approve:S.approve,parents:S.parents,odd:S.odd,wo:S.wo,cfgT:S.cfgT});
 function applyCfg(c){if(c.cfgT>S.cfgT){Object.assign(S,c);commit()}}
 function saveCfg(){S.cfgT=Date.now();commit();cloud&&cloud.cfg().catch(()=>{cstate='err'})}
 function setRec(m,key,r){S[m][key]=r;commit();cloud&&cloud.rec(m,key,r).catch(()=>{cstate='err';soft()})}
@@ -261,7 +274,7 @@ function kidView(){
     ||`<p class="muted" style="text-align:center;padding:24px 0">Inget att göra den här dagen 🎉</p>`;
   const bonusTxt=!S.bonus?'':s.all?`🎉 Bonus: +${kr(S.bonus)}`:`Klara allt i veckan: +${kr(S.bonus)} extra`;
   return`<div class="top"><button class="back" data-a="home">← Byt</button><h2 style="color:${k.c}">${esc(k.n)}</h2><span style="width:64px"></span></div>
-  <div class="card jar"><div class="jarbox"><div class="fill" style="height:${pct}%"></div></div>
+  <p class="muted" style="text-align:center;margin:-6px 0 12px">Den här veckan: hos ${esc(parentOf(owner(w)).n)}</p><div class="card jar"><div class="jarbox"><div class="fill" style="height:${pct}%"></div></div>
     <div class="jarinfo"><div class="muted">Godkänt hittills</div><div class="big">${kr(s.sum)}</div>
     <div class="muted">${s.pend?`+ ${kr(s.pend)} väntar · `:''}av ${kr(s.max)}</div><div class="bar"><i style="width:${pct}%"></i></div></div></div>
   ${bonusTxt?`<p class="muted" style="margin:-4px 4px 12px">${bonusTxt}</p>`:''}
@@ -269,24 +282,29 @@ function kidView(){
 }
 
 function pinView(){
-  const first=!S.pin;
-  return`<div class="top"><button class="back" data-a="home">← Tillbaka</button></div>
-  <div class="pin"><h2>${first?'Välj en PIN':'Ange PIN'}</h2><p class="muted">${first?'4 siffror som skyddar föräldraläget.':'Föräldraläge'}</p>
+  const back=`<div class="top"><button class="back" data-a="home">← Tillbaka</button></div>`;
+  if(!ui.me)return back+`<div class="pin"><h2>Vem är du?</h2><p class="muted">Föräldraläge</p>`+S.parents.map(p=>`<button class="btn full" style="margin-top:10px" data-a="pickme" data-v="${p.id}">${esc(p.n)}</button>`).join('')+`</div>`;
+  const p=parentOf(ui.me),first=!p.pin;
+  return back+`<div class="pin"><h2>${first?'Välj en PIN':'Ange PIN'}</h2><p class="muted">${esc(p.n)}${first?' – 4 siffror som bara du använder.':''}</p>
   <input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" autofocus>
-  <button class="btn full" style="margin-top:14px" data-a="pin">${first?'Spara PIN':'Öppna'}</button></div>`;
+  <button class="btn full" style="margin-top:14px" data-a="pin">${first?'Spara PIN':'Öppna'}</button>
+  ${first?'':`<button class="parentlink" data-a="resetpin">Glömt PIN?</button>`}
+  <button class="parentlink" style="margin-top:4px" data-a="pickme" data-v="">Inte du?</button></div>`;
 }
 
 function parentView(){
   const tabs=[['over','Översikt'],['upg','Uppgifter'],['set','Inställningar']];
-  return`<div class="top"><button class="back" data-a="home">← Ut</button><h2>Föräldraläge</h2><span style="width:64px"></span></div>
+  return`<div class="top"><button class="back" data-a="home">← Ut</button><h2>${esc(parentOf(ui.me).n)}</h2><span style="width:64px"></span></div>
   <div class="tabs">${tabs.map(([k,n])=>`<button class="${ui.tab===k?'on':''}" data-a="ptab" data-v="${k}">${n}</button>`).join('')}</div>`+
   (ui.tab==='over'?overView():ui.tab==='upg'?taskView():setView());
 }
 
 function pendView(){
-  const L=Object.entries(S.done).filter(([,r])=>r.s===1).sort((a,b)=>a[1].t-b[1].t);
-  if(!L.length)return'';
-  return`<div class="card"><h3>Att godkänna (${L.length})</h3>`+L.map(([key,r])=>{
+  const all=Object.entries(S.done).filter(([,r])=>r.s===1).sort((a,b)=>a[1].t-b[1].t);
+  const L=all.filter(([key])=>owner(key.split('|')[0])===ui.me),rest=all.length-L.length;
+  const note=rest?`<p class="muted" style="margin:0 4px 12px">${rest} väntar hos ${esc(parentOf(other(ui.me)).n)}</p>`:'';
+  if(!L.length)return note;
+  return note+`<div class="card"><h3>Att godkänna (${L.length})</h3>`+L.map(([key,r])=>{
     const[w,k,t,d]=key.split('|'),kid=kidOf(k),task=S.tasks.find(x=>x.id===t);
     if(!kid||!task)return'';
     const dt=addDays(new Date(w+'T00:00:00'),+d);
@@ -296,23 +314,24 @@ function pendView(){
 }
 
 function overView(){
-  const w=weekKey(ui.off),mon=addDays(monday(),ui.off*7),sun=addDays(mon,6);
+  const w=weekKey(ui.off),mon=addDays(monday(),ui.off*7),sun=addDays(mon,6),ow=parentOf(owner(w)),mine=ow.id===ui.me;
   const rng=`${mon.getDate()}/${mon.getMonth()+1} – ${sun.getDate()}/${sun.getMonth()+1}`;
   return pendView()+`<div class="wk"><button data-a="wk" data-v="-1" aria-label="Förra veckan">‹</button>
     <div style="text-align:center"><h3>Vecka ${isoWeek(mon)}</h3><div class="muted">${rng}${ui.off===0?' · nu':''}</div></div>
-    <button data-a="wk" data-v="1" aria-label="Nästa vecka" ${ui.off>=0?'disabled style="opacity:.35"':''}>›</button></div>`+
+    <button data-a="wk" data-v="1" aria-label="Nästa vecka" ${ui.off>=0?'disabled style="opacity:.35"':''}>›</button></div>
+  <div class="card own"><span>Hos <b>${esc(ow.n)}</b> den här veckan${mine?'':` – bara ${esc(ow.n)} kan godkänna`}</span><button class="btn alt" data-a="swapwk" data-v="${w}">Byt till ${esc(parentOf(other(ow.id)).n)}</button></div>`+
   S.kids.map(k=>{
     const s=stats(k.id,w),paid=isPaid(w,k.id);
     const rows=S.tasks.filter(t=>t.k.includes(k.id)).map(t=>`<tr><td>${t.e} ${esc(t.t)}</td>`+
       DAYS.map((_,d)=>{
         if(!t.d.includes(d))return`<td><span class="cell na">·</span></td>`;
         const st=status(w,k.id,t.id,d),c=st===2?' on':st===1?' wait':st===3?' bad':'';
-        return`<td><button class="cell${c}" data-a="ptick" data-k="${k.id}" data-t="${t.id}" data-d="${d}" data-w="${w}" aria-label="${esc(t.t)} ${DAYS[d]}">${st===2?'✓':st===1?'⏳':st===3?'✕':''}</button></td>`}).join('')+`</tr>`).join('');
+        return`<td><button class="cell${c}" ${mine?'':'disabled'} data-a="ptick" data-k="${k.id}" data-t="${t.id}" data-d="${d}" data-w="${w}" aria-label="${esc(t.t)} ${DAYS[d]}">${st===2?'✓':st===1?'⏳':st===3?'✕':''}</button></td>`}).join('')+`</tr>`).join('');
     return`<div class="card"><div class="kh"><span class="dot" style="background:${k.c}"></span><span class="fd">${esc(k.n)}</span><span class="sum">${kr(s.sum)}</span></div>
       <div class="muted">${s.n} av ${s.count} godkända${s.pend?` · ${kr(s.pend)} väntar`:''}${S.bonus?` · bonus ${kr(s.bonus)}`:''}</div>
       <div class="bar"><i style="width:${s.count?s.n/s.count*100:0}%"></i></div>
       <table class="mx"><tr><th></th>${DAYS.map(d=>`<th>${d}</th>`).join('')}</tr>${rows}</table>
-      <button class="btn ${paid?'alt':'gold'} full" style="margin-top:12px" data-a="paid" data-k="${k.id}" data-w="${w}">${paid?'✓ Utbetalt – ångra':`Markera ${kr(s.sum)} som utbetalt`}</button></div>`}).join('');
+      <button class="btn ${paid?'alt':'gold'} full" ${mine?'':'disabled'} style="margin-top:12px" data-a="paid" data-k="${k.id}" data-w="${w}">${paid?'✓ Utbetalt – ångra':`Markera ${kr(s.sum)} som utbetalt`}</button></div>`}).join('');
 }
 
 function taskView(){
@@ -344,12 +363,15 @@ function setView(){
    :`<p class="muted" style="margin:4px 0 8px">${CS[cstate]}</p><div class="code">${esc(fam||'–')}</div>
      <button class="btn gold full" style="margin-top:12px" data-a="invite">Skicka länk till barnens telefoner</button>`;
   return`<div class="card"><h3>Barn</h3>${S.kids.map(k=>`<div class="row"><input type="color" value="${k.c}" data-s="c" data-k="${k.id}" aria-label="Färg"><input type="text" value="${esc(k.n)}" data-s="n" data-k="${k.id}" style="margin:0" aria-label="Namn"></div>`).join('')}</div>
+  <div class="card"><h3>Föräldrar</h3>${S.parents.map(p=>`<div class="row"><input type="text" value="${esc(p.n)}" data-s="pn" data-k="${p.id}" style="margin:0" aria-label="Namn"></div>`).join('')}
+  <label>Udda veckor (1, 3, 5 …) är hos</label><div class="chips">${S.parents.map(p=>`<button class="chip${S.odd===p.id?' on':''}" data-a="odd" data-v="${p.id}">${esc(p.n)}</button>`).join('')}</div>
+  <p class="muted" style="margin:0">Enskilda veckor byter du i Översikt.</p></div>
   <div class="card"><h3>Godkännande</h3><label class="sw"><input type="checkbox" data-s="approve" ${S.approve?'checked':''}>Pengar räknas först när jag godkänner</label>
   <p class="muted" style="margin:6px 0 0">Uppgifter som kräver foto måste alltid godkännas.</p></div>
   <div class="card"><h3>Bonus</h3><p class="muted" style="margin:4px 0 0">Extra pengar om alla veckans uppgifter är godkända. 0 = ingen bonus.</p>
   <label for="bonus">Bonus (kr)</label><input id="bonus" type="number" inputmode="decimal" min="0" value="${S.bonus}" data-s="bonus"></div>
   <div class="card"><h3>Familj och synk</h3>${famCard}</div>
-  <div class="card"><h3>Övrigt</h3><button class="btn alt full" data-a="newpin">Byt PIN</button>
+  <div class="card"><h3>Övrigt</h3><button class="btn alt full" data-a="newpin">Byt min PIN</button>
   <button class="btn red full" style="margin-top:10px" data-a="reset">Lämna familjen och nollställ den här telefonen</button></div>`;
 }
 
@@ -369,7 +391,7 @@ document.addEventListener('click',async e=>{
   const el=e.target.closest('[data-a]');if(!el)return;
   const a=el.dataset.a,v=el.dataset.v,D=el.dataset;
   switch(a){
-    case'home':ui.mode='home';ui.ok=false;ui.edit=null;break;
+    case'home':ui.mode='home';ui.ok=false;ui.me=null;ui.edit=null;break;
     case'kid':ui.mode='kid';ui.kid=v;ui.day=null;break;
     case'day':ui.day=+v;break;
     case'tick':{
@@ -382,18 +404,26 @@ document.addEventListener('click',async e=>{
       }
       setRec('done',key,{s:(S.approve||task.p)?1:2,t:Date.now(),...(p?{p}:{})});
       toast(S.approve||task.p?'Skickat för godkännande':'Klart!');break}
-    case'ptick':{const key=dk(D.w,D.k,D.t,D.d),st=status(D.w,D.k,D.t,+D.d);setRec('done',key,{s:st===0||st===1?2:0,t:Date.now()});break}
-    case'appr':setRec('done',v,{s:2,t:Date.now()});break;
-    case'redo':setRec('done',v,{s:3,t:Date.now()});break;
+    case'ptick':{if(owner(D.w)!==ui.me){toast('Veckan tillhör '+parentOf(owner(D.w)).n);return}const key=dk(D.w,D.k,D.t,D.d),st=status(D.w,D.k,D.t,+D.d);setRec('done',key,{s:st===0||st===1?2:0,t:Date.now(),by:ui.me});break}
+    case'appr':{const w=v.split('|')[0];if(owner(w)!==ui.me){toast('Veckan tillhör '+parentOf(owner(w)).n);return}setRec('done',v,{s:2,t:Date.now(),by:ui.me});break}
+    case'redo':{const w=v.split('|')[0];if(owner(w)!==ui.me){toast('Veckan tillhör '+parentOf(owner(w)).n);return}setRec('done',v,{s:3,t:Date.now(),by:ui.me});break}
     case'zoom':ui.zoom=v;break;
     case'unzoom':ui.zoom=null;break;
     case'parent':ui.mode='parent';break;
-    case'pin':{const val=$('#pin').value;
-      if(!S.pin){if(!/^\d{4}$/.test(val)){toast('PIN ska vara 4 siffror');return}S.pin=await hp(val);saveCfg();ui.ok=true}
-      else if((await hp(val))===S.pin||val===S.pin)ui.ok=true;else{toast('Fel PIN');return}break}
+    case'pickme':ui.me=v||null;break;
+    case'pin':{const val=$('#pin').value,p=parentOf(ui.me);
+      if(!p.pin){if(!/^\d{4}$/.test(val)){toast('PIN ska vara 4 siffror');return}p.pin=await hp(val);saveCfg();ui.ok=true}
+      else if((await hp(val))===p.pin||(await hp(val,''))===p.pin||val===p.pin)ui.ok=true;else{toast('Fel PIN');return}break}
+    case'resetpin':{const me=parentOf(ui.me),o=parentOf(other(me.id));
+      if(!o.pin){toast(`${o.n} måste först välja en egen PIN`);return}
+      const x=prompt(`Skriv PIN för ${o.n} för att nollställa PIN för ${me.n}:`);if(x===null)return;
+      if((await hp(x))===o.pin||(await hp(x,''))===o.pin||x===o.pin){me.pin='';saveCfg();toast('PIN nollställd – välj en ny');break}
+      toast('Fel PIN');return}
+    case'swapwk':S.wo[v]=other(owner(v));saveCfg();break;
+    case'odd':S.odd=v;saveCfg();break;
     case'ptab':ui.tab=v;ui.edit=null;break;
     case'wk':ui.off=Math.min(0,ui.off+ +v);break;
-    case'paid':setRec('paid',D.w+'|'+D.k,{s:isPaid(D.w,D.k)?0:1,t:Date.now()});break;
+    case'paid':if(owner(D.w)!==ui.me)return;setRec('paid',D.w+'|'+D.k,{s:isPaid(D.w,D.k)?0:1,t:Date.now()});break;
     case'edit':ui.edit=v==='new'?{isNew:true,id:uid(),t:'',e:'⭐',v:5,d:[0,1,2,3,4,5,6],k:S.kids.map(k=>k.id),p:false}:JSON.parse(JSON.stringify(S.tasks.find(t=>t.id===v)));break;
     case'togd':readForm();ui.edit.d=flip(ui.edit.d,+v);break;
     case'togk':readForm();ui.edit.k=flip(ui.edit.k,v);break;
@@ -416,7 +446,7 @@ document.addEventListener('click',async e=>{
       try{if(navigator.share){await navigator.share({title:'Veckopeng',url});return}await navigator.clipboard.writeText(url);toast('Länken är kopierad')}
       catch(x){if(x&&x.name!=='AbortError')prompt('Kopiera länken:',url)}
       return}
-    case'newpin':{const p=prompt('Ny PIN (4 siffror):');if(p===null)return;if(!/^\d{4}$/.test(p)){toast('PIN ska vara 4 siffror');return}S.pin=await hp(p);saveCfg();toast('PIN bytt');return}
+    case'newpin':{const p=prompt('Ny PIN (4 siffror):');if(p===null)return;if(!/^\d{4}$/.test(p)){toast('PIN ska vara 4 siffror');return}parentOf(ui.me).pin=await hp(p);saveCfg();toast('PIN bytt');return}
     case'reset':if(!confirm('Nollställa den här telefonen och lämna familjen? Data i molnet raderas inte.'))return;
       localStorage.removeItem(KEY);localStorage.removeItem(FAM_KEY);location.reload();return;
   }
@@ -426,6 +456,7 @@ document.addEventListener('change',e=>{
   const el=e.target,s=el.dataset.s;if(!s)return;
   if(s==='bonus')S.bonus=Math.max(0,+el.value||0);
   else if(s==='approve')S.approve=el.checked;
+  else if(s==='pn'){const p=parentOf(el.dataset.k);if(p)p.n=el.value.trim()||p.n}
   else{const k=kidOf(el.dataset.k);if(k)k[s]=el.value.trim()||k[s]}
   saveCfg();
 });
